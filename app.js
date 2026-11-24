@@ -11,7 +11,8 @@ const seats = [
 ];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const placeList=$('#place-list'), seatModal=$('#seat-modal');
-let places=[],currentPosition=null,activePlace=null,selectedSeat='A-04',filterAvailable=false,saved=new Set(['spot-b','spot-c']),zoom=1,toastTimer,showSaved=false;
+const previewSpots=spotTemplates.map((spot,index)=>({...spot,direction:['북동쪽','남동쪽','남서쪽','북서쪽'][index],walk:Math.max(1,Math.ceil(spot.meters/75)),address:'위치 권한 전 · 주변 지도 미리보기'}));
+let places=[...previewSpots],currentPosition=null,activePlace='spot-a',selectedSeat='A-04',filterAvailable=false,saved=new Set(['spot-b','spot-c']),zoom=1,toastTimer,showSaved=false;
 
 function buildNearbySpots(position){
   return spotTemplates.map((template,index)=>{
@@ -27,8 +28,7 @@ function visiblePlaces(){
 }
 function renderPlaces(){
   const list=visiblePlaces();$('#place-count').textContent=list.length;
-  if(!currentPosition){placeList.innerHTML='<div class="empty-results"><span>⌖</span><strong>현재 위치를 확인해 주세요</strong><small>위치 권한을 허용하면 내 주변 스팟을 계산해요.</small><button id="list-locate">현재 위치 사용하기</button></div>';}
-  else if(!list.length){placeList.innerHTML='<div class="empty-results"><span>⌕</span><strong>검색 결과가 없습니다.</strong><small>필터를 끄거나 다른 검색어를 입력해 주세요.</small><button id="clear-search">검색 초기화</button></div>';}
+  if(!list.length){placeList.innerHTML=currentPosition?'<div class="empty-results"><span>⌕</span><strong>검색 결과가 없습니다.</strong><small>필터를 끄거나 다른 검색어를 입력해 주세요.</small><button id="clear-search">검색 초기화</button></div>':'<div class="empty-results"><span>⌖</span><strong>표시할 주변 스팟이 없어요</strong><small>현재 위치를 확인하면 주변 데모 스팟을 계산해요.</small><button id="list-locate">현재 위치 사용하기</button></div>';}
   else placeList.innerHTML=list.map(p=>`<article class="place-card ${p.id===activePlace?'selected':''} ${p.available===0?'full':''}" data-id="${p.id}" tabindex="0" aria-label="${p.name}, 예시 충전 가능 ${p.available}/${p.total}석"><div class="place-thumb ${p.kind}"><span class="thumb-initial">${p.initial}</span></div><div class="place-card-copy"><div class="place-title-line"><strong>${p.name}</strong><span class="open-label">데모</span></div><div class="place-address">${p.address}</div><div class="place-meta-line"><span class="walk">⌖ <b>${p.walk}분</b></span><i class="meta-separator"></i><span>${p.rating}</span></div></div><div class="place-card-state"><div class="state-count">${p.available}<span> / ${p.total}석</span></div><div class="state-caption"><i></i>${p.available>0?'예시 빈자리':'예시 만석'}</div></div><button class="card-save ${saved.has(p.id)?'saved':''}" data-save="${p.id}" aria-label="${saved.has(p.id)?'저장 취소':'장소 저장'}">${saved.has(p.id)?'♥':'♡'}</button></article>`).join('');
   $$('.place-card').forEach(c=>{c.addEventListener('click',e=>{if(e.target.closest('[data-save]'))return;selectPlace(c.dataset.id)});c.addEventListener('keydown',e=>{if(e.key==='Enter')selectPlace(c.dataset.id)})});
   $$('[data-save]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();toggleSaved(b.dataset.save)}));
@@ -40,11 +40,14 @@ function renderPlaces(){
 function renderMap(){
   const points=$('#map-points');points.innerHTML='';
   const dot=$('#user-map-dot'),empty=$('#map-empty');
-  if(!currentPosition){dot.hidden=true;empty.hidden=false;$('#map-tooltip').hidden=true;return;}
-  dot.hidden=false;empty.hidden=true;
-  places.forEach(p=>{
-    const north=(p.latitude-currentPosition.latitude)*111320,east=(p.longitude-currentPosition.longitude)*111320*Math.cos(currentPosition.latitude*Math.PI/180);
-    const left=Math.max(12,Math.min(87,50+east/19)),top=Math.max(15,Math.min(84,50-north/19));
+  if(!places.length){dot.hidden=true;empty.hidden=false;$('#map-tooltip').hidden=true;return;}
+  dot.hidden=!currentPosition;empty.hidden=true;$('#map-user-label').textContent=currentPosition?'현재 위치':'예시 중심';
+  places.forEach((p,index)=>{
+    const previewPositions=[[67,31],[73,65],[29,69],[31,32]];
+    const north=currentPosition?(p.latitude-currentPosition.latitude)*111320:0;
+    const east=currentPosition?(p.longitude-currentPosition.longitude)*111320*Math.cos(currentPosition.latitude*Math.PI/180):0;
+    const left=currentPosition?Math.max(12,Math.min(87,50+east/19)):previewPositions[index][0];
+    const top=currentPosition?Math.max(15,Math.min(84,50-north/19)):previewPositions[index][1];
     const pin=document.createElement('button');pin.className=`map-pin ${p.available===0?'full-pin':''} ${p.id===activePlace?'active':''}`;pin.dataset.place=p.id;pin.style.left=`${left}%`;pin.style.top=`${top}%`;
     pin.setAttribute('aria-label',`${p.name}, ${p.meters}미터, 데모 충전 가능 좌석 ${p.available}석`);
     pin.innerHTML=`<span class="pin-icon">ϟ</span><span class="pin-bubble">${p.available?`${p.available}<small> / ${p.total}</small>`:'만석'}</span>`;
@@ -55,8 +58,8 @@ function renderMap(){
 }
 function updateTooltip(p){
   if(!p){$('#map-tooltip').hidden=true;return;}
-  const tip=$('#map-tooltip');tip.hidden=false;tip.style.left=`calc(50% - 83px)`;tip.style.top='calc(50% - 91px)';
-  tip.querySelector('b').textContent=p.name;tip.querySelector('span').innerHTML=`데모 빈자리 <strong>${p.available}</strong>/${p.total}석`;tip.querySelector('small').textContent=`${p.direction} · 약 ${p.meters}m · 도보 ${p.walk}분`;
+  const tip=$('#map-tooltip');tip.hidden=false;tip.style.left='12px';tip.style.top='12px';
+  tip.querySelector('b').textContent=p.name;tip.querySelector('span').innerHTML=`데모 빈자리 <strong>${p.available}</strong>/${p.total}석`;tip.querySelector('small').textContent=currentPosition?`${p.direction} · 약 ${p.meters}m · 도보 ${p.walk}분`:'주변 지도 미리보기 · 실제 장소 아님';
 }
 function selectPlace(id){activePlace=id;selectedSeat='A-04';const p=places.find(x=>x.id===id);if(!p)return;$$('.place-card').forEach(c=>c.classList.toggle('selected',c.dataset.id===id));$$('.map-pin').forEach(b=>b.classList.toggle('active',b.dataset.place===id));updateTooltip(p);$('#modal-title').textContent=p.name;$('#modal-subtitle').textContent=`내 위치에서 ${p.direction} · 약 ${p.meters}m · 데모 좌석 배치`;renderPlaces()}
 function toggleSaved(id){if(saved.has(id)){saved.delete(id);showToast('저장한 장소에서 삭제했어요.')}else{saved.add(id);showToast('장소를 저장했어요.')}renderPlaces()}
