@@ -35,7 +35,6 @@ function renderPlaces(){
   $('#clear-search')?.addEventListener('click',()=>{$('#search-input').value='';renderPlaces()});
   $('#list-locate')?.addEventListener('click',requestCurrentLocation);
   $('#saved-count').textContent=saved.size;
-  $('#available-total').textContent=places.reduce((a,p)=>a+p.available,0);
 }
 function renderMap(){
   const points=$('#map-points');points.innerHTML='';
